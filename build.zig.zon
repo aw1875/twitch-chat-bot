@@ -1,0 +1,13 @@
+.{
+    .name = "twitch-chat-bot",
+    .version = "0.0.0",
+    .dependencies = .{
+        .websocket = .{
+            .url = "https://github.com/karlseguin/websocket.zig/archive/refs/heads/master.zip",
+            .hash = "1220eb984d97c383df1991078074c04757c6e4a71ad455d105e2619e0b9499d13d7a",
+        },
+    },
+    .paths = .{
+        "",
+    },
+}
