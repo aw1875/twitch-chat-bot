@@ -4,82 +4,55 @@ const WebSocket = @import("ws");
 
 var log = Logger{};
 
-const NICKNAME = "aWxlfyBot";
-
 const ParsedMessage = struct {
     tags: []const u8 = undefined,
     source: []const u8 = undefined,
-    command: []const u8 = undefined,
+    command: ?ParsedCommand = undefined,
     params: []const u8 = undefined,
+};
+
+const ParsedCommand = struct {
+    command: Command = Command.UNKNOWN,
+    channel: []const u8 = "",
+    cap_request_enabled: bool = false,
+
+    pub fn toString(self: ParsedCommand, allocator: std.mem.Allocator) []const u8 {
+        const str = std.fmt.allocPrint(allocator, "Command: {s}, Channel: {s}, Cap Req Enabled: {s}", .{
+            @tagName(self.command),
+            if (std.mem.eql(u8, self.channel, "")) "None" else self.channel,
+            if (self.cap_request_enabled) "true" else "false",
+        }) catch "";
+
+        return allocator.dupe(u8, str) catch "";
+    }
 };
 
 const Command = enum {
     JOIN,
     PART,
-    PRIVMSG,
-    MODE,
-    NAMES,
-    PING,
-    PONG,
-    CAP,
-    RECONNECT,
-    CLEAR_CHAT,
-    GLOBALUSERSTATE,
-    ROOMSTATE,
-    USERSTATE,
-    USERNOTICE,
-    HOSTTARGET,
     NOTICE,
     CLEARCHAT,
-    CLEARMSG,
-    WHISPER,
+    HOSTTARGET,
+    PRIVMSG,
+    PING,
+    CAP,
+    GLOBALUSERSTATE,
+    USERSTATE,
+    ROOMSTATE,
+    RECONNECT,
     UNKNOWN,
 
-    pub fn fromString(logger: Logger, str: []const u8) Command {
-        logger.debug("Parsing command: {s}", .{str});
-
-        if (std.mem.eql(u8, str, "JOIN")) {
-            return .JOIN;
-        } else if (std.mem.eql(u8, str, "PART")) {
-            return .PART;
-        } else if (std.mem.eql(u8, str, "PRIVMSG")) {
-            return .PRIVMSG;
-        } else if (std.mem.eql(u8, str, "MODE")) {
-            return .MODE;
-        } else if (std.mem.eql(u8, str, "NAMES")) {
-            return .NAMES;
-        } else if (std.mem.eql(u8, str, "PING")) {
-            return .PING;
-        } else if (std.mem.eql(u8, str, "PONG")) {
-            return .PONG;
-        } else if (std.mem.eql(u8, str, "CAP")) {
-            return .CAP;
-        } else if (std.mem.eql(u8, str, "RECONNECT")) {
-            return .RECONNECT;
-        } else if (std.mem.eql(u8, str, "CLEAR_CHAT")) {
-            return .CLEAR_CHAT;
-        } else if (std.mem.eql(u8, str, "GLOBALUSERSTATE")) {
-            return .GLOBALUSERSTATE;
-        } else if (std.mem.eql(u8, str, "ROOMSTATE")) {
-            return .ROOMSTATE;
-        } else if (std.mem.eql(u8, str, "USERSTATE")) {
-            return .USERSTATE;
-        } else if (std.mem.eql(u8, str, "USERNOTICE")) {
-            return .USERNOTICE;
-        } else if (std.mem.eql(u8, str, "HOSTTARGET")) {
-            return .HOSTTARGET;
-        } else if (std.mem.eql(u8, str, "NOTICE")) {
-            return .NOTICE;
-        } else if (std.mem.eql(u8, str, "CLEARCHAT")) {
-            return .CLEARCHAT;
-        } else if (std.mem.eql(u8, str, "CLEARMSG")) {
-            return .CLEARMSG;
-        } else if (std.mem.eql(u8, str, "WHISPER")) {
-            return .WHISPER;
-        } else {
-            return .UNKNOWN;
-        }
-    }
+    // Numeric replies
+    @"001",
+    @"002",
+    @"003",
+    @"004",
+    @"353",
+    @"366",
+    @"372",
+    @"375",
+    @"376",
+    @"421",
 };
 
 const Handler = struct {
@@ -113,12 +86,10 @@ const Handler = struct {
     }
 
     fn parse_message(self: Handler, data: []const u8) !void {
-        const m = std.mem.trim(u8, data, "\r\n");
-        var parts = std.mem.split(u8, m, "\r\n");
+        var parsed_message: ParsedMessage = .{};
+        var parts = std.mem.split(u8, std.mem.trim(u8, data, "\r\n"), "\r\n");
 
         while (parts.next()) |message| {
-            self.log.debug("{s}", .{message});
-
             var idx: usize = 0;
             var raw_tags_component: ?[]const u8 = null;
             var raw_source_component: ?[]const u8 = null;
@@ -138,8 +109,8 @@ const Handler = struct {
                 idx += 1;
 
                 if (std.mem.indexOf(u8, message[idx..], " ")) |end_idx| {
-                    raw_source_component = message[idx..end_idx];
-                    idx = end_idx + 1;
+                    raw_source_component = message[idx .. idx + end_idx];
+                    idx = idx + end_idx + 1;
 
                     self.log.debug("Source: {s}", .{raw_source_component.?});
                 }
@@ -158,21 +129,52 @@ const Handler = struct {
                 self.log.debug("Params: {s}", .{raw_params_component.?});
             }
 
-            std.debug.print("-------------------\n\n\n", .{});
+            if (raw_command_component) |command| parsed_message.command = self.parse_command(command);
+            if (parsed_message.command == null) return;
+            self.log.debug("Parsed Command: {s}", .{parsed_message.command.?.toString(self.allocator)});
+
+            std.debug.print("\n", .{});
         }
     }
 
-    fn parse_command(self: Handler, raw_command_component: []const u8) void {
-        const parsed_command: []const u8 = undefined;
-        _ = parsed_command;
-        var command_parts = std.mem.split(u8, raw_command_component, " ");
-        const command = Command.fromString(self.log, command_parts.first());
+    fn parse_command(self: Handler, raw_command: []const u8) ParsedCommand {
+        var parsed_command: ParsedCommand = .{};
 
-        self.log.debug("Command: {s}", .{@tagName(command)});
+        var command_parts = std.mem.split(u8, raw_command, " ");
+        if (std.meta.stringToEnum(Command, command_parts.first())) |command| {
+            self.log.debug("Enum: {s}", .{@tagName(command)});
+
+            parsed_command.command = command;
+            switch (command) {
+                .JOIN, .PART, .NOTICE, .CLEARCHAT, .HOSTTARGET, .PRIVMSG => {
+                    if (command_parts.next()) |channel| parsed_command.channel = channel;
+                },
+                .CAP => {
+                    _ = command_parts.next();
+                    if (command_parts.next()) |cap_request| parsed_command.cap_request_enabled = if (std.mem.eql(u8, cap_request, "ACK")) true else false;
+                },
+                .USERSTATE, .ROOMSTATE => {
+                    if (command_parts.next()) |channel| parsed_command.channel = channel;
+                },
+                .RECONNECT => self.log.infoln("The Twitch IRC server is about to terminate the connection for maintenance."),
+                .@"421" => {
+                    if (command_parts.next()) |message| self.log.warn("Unsupported IRC command: {s}", .{message});
+                },
+                .@"001" => {
+                    if (command_parts.next()) |channel| parsed_command.channel = channel;
+                },
+                .@"002", .@"003", .@"004", .@"353", .@"366", .@"372", .@"375", .@"376" => self.log.debug("numeric message: {s}", .{@tagName(command)}),
+                .PING, .GLOBALUSERSTATE => {},
+                else => self.log.warn("Unexpected command: {s}", .{@tagName(command)}),
+            }
+        }
+
+        return parsed_command;
     }
 
-    pub fn write(self: *Handler, data: []const u8) !void {
+    pub fn write(self: *Handler, data: []const u8, should_log: bool) !void {
         const message = try self.allocator.dupe(u8, data);
+        if (should_log) self.log.debug("Writing: {s}", .{data});
         return self.client.write(message);
     }
 
@@ -181,11 +183,9 @@ const Handler = struct {
 
 pub fn main() !void {
     const TWITCH_TOKEN = std.posix.getenv("TWITCH_TOKEN") orelse "";
-    if (std.mem.eql(u8, TWITCH_TOKEN, "")) {
-        log.fatalln("TWITCH_TOKEN is missing");
-    }
+    if (std.mem.eql(u8, TWITCH_TOKEN, "")) log.fatalln("TWITCH_TOKEN is missing");
 
-    log.debugln("TWITCH_TOKEN is present");
+    log.debugln("TWITCH_TOKEN is present\n");
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const alloc = gpa.allocator();
@@ -197,10 +197,11 @@ pub fn main() !void {
 
     try client.connect("/");
 
-    try client.write("CAP REQ :twitch.tv/membership twitch.tv/tags twitch.tv/commands");
-    try client.write(pass);
-    try client.write("NICK aWxlfyBot");
-    try client.write("JOIN #aWxlfy");
+    try client.write("CAP REQ :twitch.tv/membership twitch.tv/tags twitch.tv/commands", true);
+    try client.write(pass, false);
+    try client.write("NICK aWxlfyBot", true);
+    try client.write("JOIN #aWxlfy", true);
+    std.debug.print("\n", .{});
 
     while (true) {}
 }
