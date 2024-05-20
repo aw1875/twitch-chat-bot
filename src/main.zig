@@ -15,6 +15,7 @@ const Command = ParsedCommand.Command;
 // Colors
 const RGBA = @import("utils/colors.zig");
 
+// Main Logger
 var log = Logger{};
 
 const Handler = struct {
@@ -35,6 +36,16 @@ const Handler = struct {
     }
 
     pub fn connect(self: *Handler, path: []const u8) !void {
+        const start_time = std.time.milliTimestamp();
+        self.log.debugln("Connecting...");
+
+        defer {
+            const end_time = std.time.milliTimestamp();
+            self.log.debug("Connected ({d}ms)", .{end_time - start_time});
+
+            self.log.infoln("Connected to chat");
+        }
+
         try self.client.handshake(path, .{
             .timeout_ms = 5000,
             .headers = "Host: 127.0.0.1:8000",
@@ -59,15 +70,16 @@ const Handler = struct {
                         self.log.debug("Command: {s}", .{@tagName(c)});
 
                         var color_code: RGBA = .{};
+                        var name: ?[]const u8 = null;
                         if (parsed_message.tags) |parsed_tags| {
                             if (parsed_tags.tags.get("color")) |color| {
-                                color_code = RGBA.init(color);
-                                const ansi = color_code.rgbToAnsi256();
-                                if (parsed_tags.tags.get("display-name")) |display_name| {
-                                    std.debug.print("{s}{d}m{s}{s}: {s}\n", .{ Color.FG, ansi, display_name, Color.Clear, parsed_message.params });
-                                }
+                                if (!std.mem.eql(u8, color, "")) color_code = RGBA.init(color);
+                                if (parsed_tags.tags.get("display-name")) |display_name| name = display_name;
                             }
                         }
+
+                        if (name == null) return;
+                        self.log.writeMessage(name.?, color_code.rgbToAnsi256(), parsed_message.params);
                     },
                     else => |c| self.log.debug("Command: {s}", .{@tagName(c)}),
                 }
@@ -286,6 +298,7 @@ pub fn main() !void {
     try client.write("NICK the_sus_police", true);
     try client.write("JOIN #aWxlfy", true);
 
-    log.infoln("Connected to chat");
-    while (true) {}
+    while (true) {
+        std.time.sleep(250_000_000);
+    }
 }

@@ -1,8 +1,5 @@
 const std = @import("std");
 
-const stdout_file = std.io.getStdOut();
-const stderr_file = std.io.getStdErr();
-
 pub const Color = struct {
     pub const Black = "\x1b[30m";
     pub const Red = "\x1b[31m";
@@ -46,6 +43,7 @@ const LogLevel = enum(usize) {
 const Self = @This();
 scope: ?[]const u8 = null,
 allocator: std.mem.Allocator = std.heap.page_allocator,
+is_debug: bool = false,
 
 fn getTimeString(self: Self) []const u8 {
     const buff = self.allocator.alloc(u8, 11) catch unreachable;
@@ -68,11 +66,12 @@ fn writeLog(
 ) void {
     const time_str = self.getTimeString();
     const file = switch (log_level) {
-        .Debug, .Info => stdout_file,
-        .Warn, .Fatal => stderr_file,
+        .Debug, .Info => std.io.getStdOut(),
+        .Warn, .Fatal => std.io.getStdErr(),
     };
 
     file.lock(.exclusive) catch unreachable;
+    defer file.unlock();
 
     var bw = std.io.bufferedWriter(file.writer());
     const output = bw.writer();
@@ -89,12 +88,30 @@ fn writeLog(
     bw.flush() catch unreachable;
 }
 
+pub fn writeMessage(
+    _: Self,
+    displace_name: []const u8,
+    message_color: u8,
+    message: []const u8,
+) void {
+    const file = std.io.getStdOut();
+
+    file.lock(.exclusive) catch unreachable;
+    defer file.unlock();
+
+    var bw = std.io.bufferedWriter(file.writer());
+    const output = bw.writer();
+
+    output.print("{s}{d}m{s}{s}: {s}\n", .{ Color.FG, message_color, displace_name, Color.Clear, message }) catch unreachable;
+    bw.flush() catch unreachable;
+}
+
 pub fn debug(self: Self, comptime message: []const u8, args: anytype) void {
-    if (std.posix.getenv("DEV")) |_| self.writeLog(LogLevel.Debug, message, args);
+    if (self.is_debug) self.writeLog(LogLevel.Debug, message, args);
 }
 
 pub fn debugln(self: Self, comptime message: []const u8) void {
-    if (std.posix.getenv("DEV")) |_| self.writeLog(LogLevel.Debug, message, .{});
+    if (self.is_debug) self.writeLog(LogLevel.Debug, message, .{});
 }
 
 pub fn info(self: Self, comptime message: []const u8, args: anytype) void {
