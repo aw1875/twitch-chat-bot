@@ -69,13 +69,14 @@ const Handler = struct {
                     .PRIVMSG => |c| {
                         self.log.debug("Command: {s}", .{@tagName(c)});
 
-                        var color_code: RGBA = .{};
+                        var color_code: RGBA = undefined;
                         var name: ?[]const u8 = null;
                         if (parsed_message.tags) |parsed_tags| {
                             if (parsed_tags.tags.get("color")) |color| {
-                                if (!std.mem.eql(u8, color, "")) color_code = RGBA.init(color);
-                                if (parsed_tags.tags.get("display-name")) |display_name| name = display_name;
+                                if (!std.mem.eql(u8, color, "")) color_code = RGBA.init(color) else color_code = RGBA.initRandom();
                             }
+
+                            if (parsed_tags.tags.get("display-name")) |display_name| name = display_name;
                         }
 
                         if (name == null) return;

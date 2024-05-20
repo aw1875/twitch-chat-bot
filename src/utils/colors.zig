@@ -1,3 +1,5 @@
+const std = @import("std");
+
 const RGBA = @This();
 r: f32 = 255.0,
 g: f32 = 255.0,
@@ -20,6 +22,17 @@ pub fn init(color: []const u8) RGBA {
         .r = @floatFromInt((hex >> 16) & 0xFF),
         .g = @floatFromInt((hex >> 8) & 0xFF),
         .b = @floatFromInt(hex & 0xFF),
+    };
+}
+
+pub fn initRandom() RGBA {
+    const seed: u64 = @truncate(@as(u128, @bitCast(std.time.nanoTimestamp())));
+    var prng = std.rand.DefaultPrng.init(seed);
+
+    return RGBA{
+        .r = @floatFromInt(prng.random().intRangeAtMostBiased(u8, 0, 255)),
+        .g = @floatFromInt(prng.random().intRangeAtMostBiased(u8, 0, 255)),
+        .b = @floatFromInt(prng.random().intRangeAtMostBiased(u8, 0, 255)),
     };
 }
 
