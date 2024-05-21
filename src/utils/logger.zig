@@ -90,7 +90,8 @@ fn writeLog(
 
 pub fn writeMessage(
     _: Self,
-    displace_name: []const u8,
+    channel: []const u8,
+    display_name: []const u8,
     message_color: u8,
     message: []const u8,
 ) void {
@@ -102,7 +103,7 @@ pub fn writeMessage(
     var bw = std.io.bufferedWriter(file.writer());
     const output = bw.writer();
 
-    output.print("{s}{d}m{s}{s}: {s}\n", .{ Color.FG, message_color, displace_name, Color.Clear, message }) catch unreachable;
+    output.print("({s}) {s}{d}m{s}{s}: {s}\n", .{ channel, Color.FG, message_color, display_name, Color.Clear, message }) catch unreachable;
     bw.flush() catch unreachable;
 }
 

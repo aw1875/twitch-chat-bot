@@ -18,6 +18,9 @@ const RGBA = @import("utils/colors.zig");
 // Main Logger
 var log = Logger{};
 
+// User Colors
+var user_colors: std.StringHashMap(RGBA) = undefined;
+
 const Handler = struct {
     allocator: std.mem.Allocator,
     client: WebSocket.Client,
@@ -72,15 +75,20 @@ const Handler = struct {
                         var color_code: RGBA = undefined;
                         var name: ?[]const u8 = null;
                         if (parsed_message.tags) |parsed_tags| {
-                            if (parsed_tags.tags.get("color")) |color| {
-                                if (!std.mem.eql(u8, color, "")) color_code = RGBA.init(color) else color_code = RGBA.initRandom();
-                            }
-
                             if (parsed_tags.tags.get("display-name")) |display_name| name = display_name;
+                            if (name == null) return;
+
+                            if (parsed_tags.tags.get("color")) |color| {
+                                if (!std.mem.eql(u8, color, "")) color_code = RGBA.init(color) else {
+                                    if (user_colors.get(name.?)) |user_color| color_code = user_color else {
+                                        color_code = RGBA.initRandom();
+                                        user_colors.put(name.?, color_code) catch self.log.warn("Failed to add {s} to user_colors", .{name.?});
+                                    }
+                                }
+                            }
                         }
 
-                        if (name == null) return;
-                        self.log.writeMessage(name.?, color_code.rgbToAnsi256(), parsed_message.params);
+                        self.log.writeMessage(parsed_message.command.?.channel, name.?, color_code.rgbToAnsi256(), parsed_message.params);
                     },
                     else => |c| self.log.debug("Command: {s}", .{@tagName(c)}),
                 }
@@ -159,7 +167,7 @@ const Handler = struct {
             parsed_command.command = command;
             switch (command) {
                 .JOIN, .PART, .NOTICE, .CLEARCHAT, .HOSTTARGET, .PRIVMSG => {
-                    if (command_parts.next()) |channel| parsed_command.channel = channel;
+                    if (command_parts.next()) |channel| parsed_command.channel = std.mem.trimLeft(u8, channel, "#");
                 },
                 .CAP => {
                     _ = command_parts.next();
@@ -298,6 +306,10 @@ pub fn main() !void {
     try client.write(pass, false);
     try client.write("NICK the_sus_police", true);
     try client.write("JOIN #aWxlfy", true);
+
+    user_colors = std.StringHashMap(RGBA).init(alloc);
+    defer user_colors.deinit();
+    user_colors.ensureTotalCapacity(10000) catch unreachable; // With lots of chatters it was crashing since capacity didnt keep up
 
     while (true) {
         std.time.sleep(250_000_000);
